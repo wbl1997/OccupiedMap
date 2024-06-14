@@ -1,0 +1,118 @@
+<launch>
+    <node name="tum_to_odometry" pkg="OccupiedMap" type="readpose" output="screen">
+        <!-- Path to TUM format data file -->
+        <param name="tum_file_path" value="/home/levy/pcl_ws/src/pcl_01/data/0511/data2_gt.txt"/>
+    </node>
+    <node name="rosbag_play" pkg="rosbag" type="play" args="/home/levy/data/0511/data2_2024-05-11-17-32-28.bag" output="screen"/>
+ 
+    <!-- Node for radar to world transformation -->
+    <node name="radar_to_world_transformer" pkg="OccupiedMap" type="slam2d" output="screen">
+        <!-- Parameters for radar data processing -->
+        <param name="enable_logging" value="true"/>
+        <param name="enable_passthrough" value="true"/>
+        <param name="enable_outlier_removal" value="true"/>
+        <param name="window_size" value="25"/>
+
+        <param name="passthrough_front_max_0" value="16.0"/>
+        <param name="passthrough_front_min_0" value="0.5"/>
+        <param name="passthrough_height_max_0" value="0.5"/>
+        <param name="passthrough_height_min_0" value="-0.5"/>
+        
+        <param name="passthrough_front_max_1" value="5.0"/>
+        <param name="passthrough_front_min_1" value="0.5"/>
+        <param name="passthrough_height_max_1" value="0.5"/>
+        <param name="passthrough_height_min_1" value="-0.5"/>
+
+        <param name="passthrough_front_max_2" value="5.0"/>
+        <param name="passthrough_front_min_2" value="0.5"/>
+        <param name="passthrough_height_max_2" value="0.5"/>
+        <param name="passthrough_height_min_2" value="-0.5"/>
+
+        <param name="outlier_mean_k_0" value="50"/>
+        <param name="outlier_stddev_thresh_0" value="1.0"/>
+        <param name="outlier_mean_k_1" value="50"/>
+        <param name="outlier_stddev_thresh_1" value="1.0"/>
+        <param name="outlier_mean_k_2" value="50"/>
+        <param name="outlier_stddev_thresh_2" value="1.0"/>
+
+        <param name="enable_sensor_0" value="true"/>
+        <param name="enable_sensor_AOP_0" value="true"/>
+        <param name="enable_sensor_AOP_1" value="true"/>
+
+        <!-- Topic subscriptions and publications -->
+        <param name="radar_sub_topic_0" value="/ti_mmwave/radar_scan_pcl_0"/>
+        <param name="radar_sub_topic_AOP_0" value="/ti_mmwave/radar_scan_pcl_AOP_0"/>
+        <param name="radar_sub_topic_AOP_1" value="/ti_mmwave/radar_scan_pcl_AOP_1"/>
+        <param name="radar_pub_topic" value="/radar"/>
+        <param name="odometry_topic" value="/Odometry"/>
+        <param name="world_pub_topic" value="/world_radar"/>
+    </node>
+
+    <!-- Node for converting PointCloud to LaserScan -->
+    <node pkg="pointcloud_to_laserscan" type="pointcloud_to_laserscan_node" name="pcl_to_scan" output="screen">
+        <!-- Remappings -->
+        <remap from="cloud_in" to="/radar"/>
+        <remap from="scan" to="/output_scan"/>
+
+        <!-- Parameters -->
+        <param name="target_frame" value="frame1"/>
+        <param name="min_height" value="-0.5"/>
+        <param name="max_height" value="0.5"/>
+        <param name="range_max" value="14.0"/> <!-- Maximum distance in meters -->
+        <param name="angle_max" value="3.14"/> <!-- Maximum angle in radians (π radians) -->
+        <param name="range_min" value="0"/> <!-- Minimum distance in meters -->
+        <param name="angle_min" value="-3.14"/> <!-- Minimum angle in radians (-π radians) -->
+        <param name="angle_increment" value="0.00314"/> <!-- Angle resolution in radians -->
+    </node>
+
+    <!-- Slam Toolbox Node Configuration -->
+    <node pkg="slam_toolbox" type="sync_slam_toolbox_node" name="slam_toolbox" output="screen">
+        <!-- Basic Parameters -->
+        <param name="odom_frame" value="odom"/>
+        <param name="map_frame" value="map"/>
+        <param name="base_frame" value="frame1"/>
+        <param name="scan_topic" value="/output_scan"/>
+        <param name="mode" value="mapping"/>
+        <param name="odom_topic" value="/odom"/>
+        
+        <!-- Slam Toolbox Specific Parameters -->
+        <param name="solver_plugin" value="solver_plugins::CeresSolver"/>
+        <param name="ceres_linear_solver" value="SPARSE_NORMAL_CHOLESKY"/>
+        <param name="ceres_preconditioner" value="SCHUR_JACOBI"/>
+        <param name="ceres_trust_strategy" value="LEVENBERG_MARQUARDT"/>
+        <param name="ceres_dogleg_type" value="TRADITIONAL_DOGLEG"/>
+        <param name="ceres_loss_function" value="None"/>
+        <param name="resolution" value="0.06"/>
+        <param name="max_laser_range" value="14.0"/>
+        <param name="minimum_travel_distance" value="0"/>
+        <param name="minimum_travel_heading" value="0"/>
+        <param name="map_update_interval" value="0.1"/>
+        <param name="use_scan_matching" value="false"/>
+        <param name="use_scan_barycenter" value="false"/>
+        <param name="transform_publish_period" value="0.02"/>
+        <param name="debug_logging" value="false"/>
+        <param name="throttle_scans" value="1"/>
+        <param name="minimum_time_interval" value="0.3"/>
+        <param name="transform_timeout" value="0.2"/>
+        <param name="tf_buffer_duration" value="30"/>
+        <param name="stack_size_to_use" value="40000000"/>
+        <param name="use_imu" value="false"/>
+        <param name="interactive_mode" value="true"/>
+
+        <!-- Additional Scan Matcher Parameters -->
+        <param name="distance_variance_penalty" value="0.5"/>
+        <param name="angle_variance_penalty" value="1.0"/>
+        <param name="fine_search_angle_offset" value="0.00349"/>
+        <param name="coarse_search_angle_offset" value="0.349"/>
+        <param name="coarse_angle_resolution" value="0.0349"/>
+        <param name="minimum_angle_penalty" value="0.9"/>
+        <param name="minimum_distance_penalty" value="0.5"/>
+        <param name="use_response_expansion" value="true"/>
+    </node>
+
+    <!-- RViz configuration nodes -->
+    <node name="rviz_2dscan" pkg="rviz" type="rviz" args="-d $(find pcl_01)/rviz_cfg/2dscan.rviz" output="screen"/>
+    <node name="rviz_map" pkg="rviz" type="rviz" args="-d $(find pcl_01)/rviz_cfg/map.rviz" output="screen"/>
+    <node name="rviz_origin" pkg="rviz" type="rviz" args="-d $(find pcl_01)/rviz_cfg/origin.rviz" output="screen"/>
+</launch>
+
