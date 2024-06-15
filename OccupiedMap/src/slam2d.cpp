@@ -24,6 +24,9 @@ double passthrough_front_max_2, passthrough_front_min_2, passthrough_height_max_
 int outlier_mean_k_0, outlier_mean_k_1, outlier_mean_k_2;
 double outlier_stddev_thresh_0, outlier_stddev_thresh_1, outlier_stddev_thresh_2;
 
+Eigen::Matrix3d rotation_0, rotation_1, rotation_2;
+Eigen::Vector3d translation_0, translation_1, translation_2;
+
 struct PoseData {
     double time;
     Eigen::Vector3d position;
@@ -56,26 +59,16 @@ void odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
 
 Eigen::Matrix4d getTransformationMatrix(int sensor_id) {
     Eigen::Matrix4d transform = Eigen::Matrix4d::Identity();
-    Eigen::Matrix3d rot_base;
 
     if (sensor_id == 0) {
-        rot_base << 0, 1, 0,
-                   -1, 0, 0,
-                    0, 0, 1;
-        transform.block<3, 3>(0, 0) = rot_base;
-        transform.block<3, 1>(0, 3) = Eigen::Vector3d(0, 0, 0);
+        transform.block<3, 3>(0, 0) = rotation_0;
+        transform.block<3, 1>(0, 3) = translation_0;
     } else if (sensor_id == 1) {
-        rot_base << 1, 0, 0,
-                    0, 1, 0,
-                    0, 0, 1;
-        transform.block<3, 3>(0, 0) = rot_base;
-        transform.block<3, 1>(0, 3) = Eigen::Vector3d(0.02, 0.13, -0.025);
+        transform.block<3, 3>(0, 0) = rotation_1;
+        transform.block<3, 1>(0, 3) = translation_1;
     } else if (sensor_id == 2) {
-        rot_base << -1, 0, 0,
-                     0, 1, 0,
-                     0, 0, -1;
-        transform.block<3, 3>(0, 0) = rot_base;
-        transform.block<3, 1>(0, 3) = Eigen::Vector3d(0.015, -0.06, -0.025);
+        transform.block<3, 3>(0, 0) = rotation_2;
+        transform.block<3, 1>(0, 3) = translation_2;
     }
 
     if (enable_logging) {
@@ -156,7 +149,7 @@ void logPose(const std::string& label, const PoseData& pose) {
     }
 }
 
-void lidarCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
+void radarCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
                    ros::Publisher& transformed_cloud_pub, ros::Publisher& world_cloud_pub,
                    tf2_ros::TransformBroadcaster& broadcaster, nav_msgs::Path& path,
                    ros::Publisher& path_pub,
@@ -295,10 +288,17 @@ void lidarCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
     path_pub.publish(path);
 }
 
-int main(int argc, char** argv) {
-    ros::init(argc, argv, "radar_to_world_transformer");
-    ros::NodeHandle nh("~");
+std::vector<double> parseVector(const std::string& str) {
+    std::stringstream ss(str);
+    std::string item;
+    std::vector<double> result;
+    while (std::getline(ss, item, ',')) {
+        result.push_back(std::stod(item));
+    }
+    return result;
+}
 
+void loadParameters(ros::NodeHandle& nh) {
     nh.param("enable_logging", enable_logging, true);
     nh.param("passthrough_front_max_0", passthrough_front_max_0, 30.0);
     nh.param("passthrough_front_min_0", passthrough_front_min_0, 0.5);
@@ -318,6 +318,30 @@ int main(int argc, char** argv) {
     nh.param("outlier_stddev_thresh_1", outlier_stddev_thresh_1, 1.0);
     nh.param("outlier_mean_k_2", outlier_mean_k_2, 50);
     nh.param("outlier_stddev_thresh_2", outlier_stddev_thresh_2, 1.0);
+
+    std::string rotation_str_0, rotation_str_1, rotation_str_2;
+    std::string translation_str_0, translation_str_1, translation_str_2;
+
+    nh.param("rotation_0", rotation_str_0, std::string("0,1,0,-1,0,0,0,0,1"));
+    nh.param("translation_0", translation_str_0, std::string("0,0,0"));
+    nh.param("rotation_1", rotation_str_1, std::string("1,0,0,0,1,0,0,0,1"));
+    nh.param("translation_1", translation_str_1, std::string("0.02,0.13,-0.025"));
+    nh.param("rotation_2", rotation_str_2, std::string("-1,0,0,0,1,0,0,0,-1"));
+    nh.param("translation_2", translation_str_2, std::string("0.015,-0.06,-0.025"));
+
+    rotation_0 = Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(parseVector(rotation_str_0).data());
+    translation_0 = Eigen::Map<Eigen::Vector3d>(parseVector(translation_str_0).data());
+    rotation_1 = Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(parseVector(rotation_str_1).data());
+    translation_1 = Eigen::Map<Eigen::Vector3d>(parseVector(translation_str_1).data());
+    rotation_2 = Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(parseVector(rotation_str_2).data());
+    translation_2 = Eigen::Map<Eigen::Vector3d>(parseVector(translation_str_2).data());
+}
+
+int main(int argc, char** argv) {
+    ros::init(argc, argv, "radar_to_world");
+    ros::NodeHandle nh("~");
+
+    loadParameters(nh);
 
     bool enable_passthrough, enable_outlier_removal;
     int window_size;
@@ -344,29 +368,29 @@ int main(int argc, char** argv) {
     nav_msgs::Path path;
     path.header.frame_id = "map";
 
-    ros::Subscriber lidar_sub_0, lidar_sub_1, lidar_sub_2;
+    ros::Subscriber radar_sub_0, radar_sub_1, radar_sub_2;
 
     nh.param("enable_sensor_0", enable_sensor_0, true);
     nh.param("enable_sensor_1", enable_sensor_1, true);
     nh.param("enable_sensor_2", enable_sensor_2, true);
 
     if (enable_sensor_0) {
-        lidar_sub_0 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_0, 1, 
-            std::bind(&lidarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
+        radar_sub_0 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_0, 1, 
+            std::bind(&radarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
             std::ref(broadcaster), std::ref(path), std::ref(path_pub),
             std::ref(cloud_queue_0), window_size, enable_passthrough, enable_outlier_removal, 0, std::ref(combined_queue)));
     }
 
     if (enable_sensor_1) {
-        lidar_sub_1 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_1, 1, 
-            std::bind(&lidarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
+        radar_sub_1 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_1, 1, 
+            std::bind(&radarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
             std::ref(broadcaster), std::ref(path), std::ref(path_pub),
             std::ref(cloud_queue_1), window_size, enable_passthrough, enable_outlier_removal, 1, std::ref(combined_queue)));
     }
 
     if (enable_sensor_2) {
-        lidar_sub_2 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_2, 1, 
-            std::bind(&lidarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
+        radar_sub_2 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_2, 1, 
+            std::bind(&radarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
             std::ref(broadcaster), std::ref(path), std::ref(path_pub),
             std::ref(cloud_queue_2), window_size, enable_passthrough, enable_outlier_removal, 2, std::ref(combined_queue)));
     }
