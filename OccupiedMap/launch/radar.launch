@@ -1,9 +1,9 @@
 <launch>
     <node name="tum_to_odometry" pkg="OccupiedMap" type="readpose" output="screen">
         <!-- Path to TUM format data file -->
-        <param name="tum_file_path" value="/home/levy/pcl_ws/src/pcl_01/data/0511/data2_gt.txt"/>
+        <param name="tum_file_path" value="/home/levy/pcl_ws/src/pcl_01/data/0618/data1_gt.txt"/>
     </node>
-    <node name="rosbag_play" pkg="rosbag" type="play" args="/home/levy/data/0511/data2_2024-05-11-17-32-28.bag" output="screen"/>
+    <node name="rosbag_play" pkg="rosbag" type="play" args="/home/levy/data/0618/filter.bag" output="screen"/>
  
     <!-- Node for radar to world transformation -->
     <node name="radar_to_world_transformer" pkg="OccupiedMap" type="slam2d" output="screen">
@@ -36,20 +36,20 @@
         <param name="outlier_stddev_thresh_2" value="1.0"/>
 
         <param name="enable_sensor_0" value="true"/>
-        <param name="enable_sensor_AOP_0" value="true"/>
-        <param name="enable_sensor_AOP_1" value="true"/>
+        <param name="enable_sensor_1" value="true"/>
+        <param name="enable_sensor_2" value="true"/>
 
-        <param name="rotation_0" value="0,1,0,-1,0,0,0,0,1"/>
+        <param name="rotation_0" value="0,-1,0,1,0,0,0,0,1"/>
         <param name="translation_0" value="0,0,0"/>
         <param name="rotation_1" value="1,0,0,0,1,0,0,0,1"/>
-        <param name="translation_1" value="0.02,0.13,-0.025"/>
+        <param name="translation_1" value="0,0,0"/>
         <param name="rotation_2" value="-1,0,0,0,1,0,0,0,-1"/>
-        <param name="translation_2" value="0.015,-0.06,-0.025"/>
+        <param name="translation_2" value="0,0,0"/>
 
         <!-- Topic subscriptions and publications -->
         <param name="radar_sub_topic_0" value="/ti_mmwave/radar_scan_pcl_0"/>
-        <param name="radar_sub_topic_AOP_0" value="/ti_mmwave/radar_scan_pcl_AOP_0"/>
-        <param name="radar_sub_topic_AOP_1" value="/ti_mmwave/radar_scan_pcl_AOP_1"/>
+        <param name="radar_sub_topic_1" value="/livox/lidar"/>
+        <param name="radar_sub_topic_2" value="/ti_mmwave/radar_scan_pcl_AOP_1"/>
         <param name="radar_pub_topic" value="/radar"/>
         <param name="odometry_topic" value="/Odometry"/>
         <param name="world_pub_topic" value="/world_radar"/>
