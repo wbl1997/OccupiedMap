@@ -353,7 +353,7 @@ int main(int argc, char** argv) {
     nh.param<std::string>("radar_sub_topic_0", radar_sub_topic_0, "/ti_mmwave/radar_scan_pcl_0");
     nh.param<std::string>("radar_pub_topic", radar_pub_topic, "/radar");
     nh.param<std::string>("world_pub_topic", world_pub_topic, "/world_radar");
-    nh.param<std::string>("radar_sub_topic_1", radar_sub_topic_1, "/ti_mmwave/radar_scan_pcl_AOP_0");
+    nh.param<std::string>("radar_sub_topic_1", radar_sub_topic_1, "/livox/lidar");
     nh.param<std::string>("radar_sub_topic_2", radar_sub_topic_2, "/ti_mmwave/radar_scan_pcl_AOP_1");
     nh.param<std::string>("odometry_topic", odometry_topic, "/Odometry");
     nh.param<std::string>("path_pub_topic", path_pub_topic, "/path");
