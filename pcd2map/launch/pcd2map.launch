@@ -1,0 +1,19 @@
+<launch>
+    <node name="pcd2map_node" pkg="OccupiedMap" type="pcd2map" output="screen">
+        <param name="odom_topic" value="/odometry"/>
+
+        <param name="pointcloud_topic" value="/radar"/>
+        <param name="thre_max" value="1.0"/>
+        <param name="thre_min" value="-0.5"/>
+        <param name="flag_pass_through" value="0"/>
+        <param name="map_resolution" value="0.1"/>
+        <param name="thre_radius" value="0.2"/>
+        <param name="min_neighbors" value="3"/>
+
+        <param name="bound_up" value="10"/>
+        <param name="bound_down" value="-10"/>
+        <param name="bound_left" value="10"/>
+        <param name="bound_right" value="-10"/>
+    </node>
+</launch>
+
