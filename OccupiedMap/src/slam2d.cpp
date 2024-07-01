@@ -152,7 +152,7 @@ void logPose(const std::string& label, const PoseData& pose) {
 void radarCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
                    ros::Publisher& transformed_cloud_pub, ros::Publisher& world_cloud_pub,
                    tf2_ros::TransformBroadcaster& broadcaster, nav_msgs::Path& path,
-                   ros::Publisher& path_pub,
+                   ros::Publisher& path_pub, ros::Publisher& odometry_pub, // Add odometry publisher
                    std::deque<PointCloudData>& cloud_queue, int window_size, bool enable_passthrough, bool enable_outlier_removal,
                    int sensor_id, std::deque<PointCloudData>& combined_queue) {
     if (pose_data_queue.empty()) {
@@ -259,23 +259,9 @@ void radarCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
     world_output_cloud.header.stamp = ros::Time::now();
     world_cloud_pub.publish(world_output_cloud);
 
-    geometry_msgs::TransformStamped odom_to_frame1;
-    odom_to_frame1.header.stamp = ros::Time::now();
-    odom_to_frame1.header.frame_id = "odom";
-    odom_to_frame1.child_frame_id = "frame1";
-    odom_to_frame1.transform.translation.x = current_position.x();
-    odom_to_frame1.transform.translation.y = current_position.y();
-    odom_to_frame1.transform.translation.z = current_position.z();
-    odom_to_frame1.transform.rotation.x = current_orientation.x();
-    odom_to_frame1.transform.rotation.y = current_orientation.y();
-    odom_to_frame1.transform.rotation.z = current_orientation.z();
-    odom_to_frame1.transform.rotation.w = current_orientation.w();
-
-    broadcaster.sendTransform(odom_to_frame1);
-
     geometry_msgs::PoseStamped pose_stamped;
     pose_stamped.header.stamp = ros::Time::now();
-    pose_stamped.header.frame_id = "odom";
+    pose_stamped.header.frame_id = "world";
     pose_stamped.pose.position.x = current_position.x();
     pose_stamped.pose.position.y = current_position.y();
     pose_stamped.pose.position.z = current_position.z();
@@ -286,6 +272,20 @@ void radarCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
 
     path.poses.push_back(pose_stamped);
     path_pub.publish(path);
+
+    // Publish odometry message
+    nav_msgs::Odometry odometry_msg;
+    odometry_msg.header.stamp = ros::Time::now();
+    odometry_msg.header.frame_id = "world";
+    odometry_msg.pose.pose = pose_stamped.pose;
+    odometry_msg.twist.twist.linear.x = 0;  // You may want to set the correct linear velocity
+    odometry_msg.twist.twist.linear.y = 0;
+    odometry_msg.twist.twist.linear.z = 0;
+    odometry_msg.twist.twist.angular.x = 0;  // You may want to set the correct angular velocity
+    odometry_msg.twist.twist.angular.y = 0;
+    odometry_msg.twist.twist.angular.z = 0;
+
+    odometry_pub.publish(odometry_msg);
 }
 
 std::vector<double> parseVector(const std::string& str) {
@@ -363,10 +363,12 @@ int main(int argc, char** argv) {
     ros::Publisher transformed_cloud_pub = nh.advertise<sensor_msgs::PointCloud2>(radar_pub_topic, 1);
     ros::Publisher world_cloud_pub = nh.advertise<sensor_msgs::PointCloud2>(world_pub_topic, 1);
     ros::Publisher path_pub = nh.advertise<nav_msgs::Path>(path_pub_topic, 1);
+    ros::Publisher odometry_pub = nh.advertise<nav_msgs::Odometry>("/odometry", 1);  // Add odometry publisher
+
     tf2_ros::TransformBroadcaster broadcaster;
     std::deque<PointCloudData> cloud_queue_0, cloud_queue_1, cloud_queue_2, combined_queue;
     nav_msgs::Path path;
-    path.header.frame_id = "map";
+    path.header.frame_id = "world";
 
     ros::Subscriber radar_sub_0, radar_sub_1, radar_sub_2;
 
@@ -377,21 +379,21 @@ int main(int argc, char** argv) {
     if (enable_sensor_0) {
         radar_sub_0 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_0, 1, 
             std::bind(&radarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
-            std::ref(broadcaster), std::ref(path), std::ref(path_pub),
+            std::ref(broadcaster), std::ref(path), std::ref(path_pub), std::ref(odometry_pub), // Pass odometry publisher
             std::ref(cloud_queue_0), window_size, enable_passthrough, enable_outlier_removal, 0, std::ref(combined_queue)));
     }
 
     if (enable_sensor_1) {
         radar_sub_1 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_1, 1, 
             std::bind(&radarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
-            std::ref(broadcaster), std::ref(path), std::ref(path_pub),
+            std::ref(broadcaster), std::ref(path), std::ref(path_pub), std::ref(odometry_pub), // Pass odometry publisher
             std::ref(cloud_queue_1), window_size, enable_passthrough, enable_outlier_removal, 1, std::ref(combined_queue)));
     }
 
     if (enable_sensor_2) {
         radar_sub_2 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_2, 1, 
             std::bind(&radarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
-            std::ref(broadcaster), std::ref(path), std::ref(path_pub),
+            std::ref(broadcaster), std::ref(path), std::ref(path_pub), std::ref(odometry_pub), // Pass odometry publisher
             std::ref(cloud_queue_2), window_size, enable_passthrough, enable_outlier_removal, 2, std::ref(combined_queue)));
     }
 
