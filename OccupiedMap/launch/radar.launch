@@ -1,9 +1,9 @@
 <launch>
     <node name="tum_to_odometry" pkg="OccupiedMap" type="readpose" output="screen">
         <!-- Path to TUM format data file -->
-        <param name="tum_file_path" value="/home/levy/pcl_ws/src/pcl_01/data/0618/data1_gt.txt"/>
+        <param name="tum_file_path" value="/home/levy/pcl_ws/src/pcl_01/data/0625/data6_gt.txt"/>
     </node>
-    <node name="rosbag_play" pkg="rosbag" type="play" args="/home/levy/data/0618/filter.bag" output="screen"/>
+    <node name="rosbag_play" pkg="rosbag" type="play" args="/home/levy/data/0625/data6_2024-06-25-15-35-25.bag" output="screen"/>
  
     <!-- Node for radar to world transformation -->
     <node name="radar_to_world_transformer" pkg="OccupiedMap" type="slam2d" output="screen">
@@ -18,7 +18,7 @@
         <param name="passthrough_height_max_0" value="0.5"/>
         <param name="passthrough_height_min_0" value="-0.5"/>
         
-        <param name="passthrough_front_max_1" value="5.0"/>
+        <param name="passthrough_front_max_1" value="16.0"/>
         <param name="passthrough_front_min_1" value="0.5"/>
         <param name="passthrough_height_max_1" value="0.5"/>
         <param name="passthrough_height_min_1" value="-0.5"/>
@@ -35,20 +35,20 @@
         <param name="outlier_mean_k_2" value="50"/>
         <param name="outlier_stddev_thresh_2" value="1.0"/>
 
-        <param name="enable_sensor_0" value="true"/>
+        <param name="enable_sensor_0" value="false"/>
         <param name="enable_sensor_1" value="true"/>
         <param name="enable_sensor_2" value="true"/>
 
         <param name="rotation_0" value="0,-1,0,1,0,0,0,0,1"/>
         <param name="translation_0" value="0,0,0"/>
-        <param name="rotation_1" value="1,0,0,0,1,0,0,0,1"/>
+        <param name="rotation_1" value="0,-1,0,1,0,0,0,0,1"/>
         <param name="translation_1" value="0,0,0"/>
         <param name="rotation_2" value="-1,0,0,0,1,0,0,0,-1"/>
         <param name="translation_2" value="0,0,0"/>
 
         <!-- Topic subscriptions and publications -->
         <param name="radar_sub_topic_0" value="/ti_mmwave/radar_scan_pcl_0"/>
-        <param name="radar_sub_topic_1" value="/livox/lidar"/>
+        <param name="radar_sub_topic_1" value="/ti_mmwave/radar_scan_pcl_1"/>
         <param name="radar_sub_topic_2" value="/ti_mmwave/radar_scan_pcl_AOP_1"/>
         <param name="radar_pub_topic" value="/radar"/>
         <param name="odometry_topic" value="/Odometry"/>
