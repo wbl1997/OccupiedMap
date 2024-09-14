@@ -1,0 +1,84 @@
+<launch>
+    <!-- Node for radar to world transformation -->
+    <node name="radar_to_world_transformer" pkg="OccupiedMap" type="slam2d" output="screen">
+        <!-- Parameters for radar data processing -->
+        <param name="enable_logging" value="false"/>
+        <param name="enable_passthrough" value="true"/>
+        <param name="enable_outlier_removal" value="true"/>
+        <param name="window_size" value="45"/>
+
+        <param name="passthrough_front_max_0" value="30.0"/>
+        <param name="passthrough_front_min_0" value="0.5"/>
+        <param name="passthrough_height_max_0" value="0.5"/>
+        <param name="passthrough_height_min_0" value="-0.5"/>
+        
+        <param name="passthrough_front_max_1" value="30.0"/>
+        <param name="passthrough_front_min_1" value="1.5"/>
+        <param name="passthrough_height_max_1" value="0.5"/>
+        <param name="passthrough_height_min_1" value="-0.5"/>
+
+        <param name="passthrough_front_max_2" value="30.0"/>
+        <param name="passthrough_front_min_2" value="1.5"/>
+        <param name="passthrough_height_max_2" value="0.5"/>
+        <param name="passthrough_height_min_2" value="-0.5"/>
+
+        <param name="outlier_mean_k_0" value="50"/>
+        <param name="outlier_stddev_thresh_0" value="1.0"/>
+        <param name="outlier_mean_k_1" value="50"/>
+        <param name="outlier_stddev_thresh_1" value="1.0"/>
+        <param name="outlier_mean_k_2" value="50"/>
+        <param name="outlier_stddev_thresh_2" value="1.0"/>
+
+        <param name="enable_sensor_0" value="false"/>
+        <param name="enable_sensor_1" value="false"/>
+        <param name="enable_sensor_2" value="true"/>
+
+        <param name="rotation_0" value="
+        -0.999,-0.028,-0.017,
+        0.028,-0.999,-0.008,
+        -0.016,-0.009,0.999"/> 
+        <!-- <param name="rotation_0" value="-1,0,0,0,-1,0,0,0,1"/> -->
+        <param name="translation_0" value="0.043,0.065,-0.052"/>
+        <param name="rotation_1" value="
+        -0.999,-0.028,-0.017,
+        0.028,-0.999,-0.008,
+        -0.016,-0.009,0.999"/> 
+        <param name="translation_1" value="0,0,0"/>
+        <param name="rotation_2" value="
+       -0.999,-0.028,-0.017,
+        0.028,-0.999,-0.008,
+        -0.016,-0.009,0.999"/> 
+        <param name="translation_2" value="0,0,0"/>
+
+        <!-- Topic subscriptions and publications -->
+        <param name="radar_sub_topic_0" value="/ti_mmwave/radar_scan_pcl_0"/>
+        <!-- <param name="radar_sub_topic_0" value="/rio/tem_radar_0_inlier"/> -->
+        <param name="radar_sub_topic_1" value="/ti_mmwave/radar_scan_pcl_1"/>
+        <param name="radar_sub_topic_2" value="/ti_mmwave/radar_scan_pcl_1843_0"/>
+        <param name="radar_pub_topic" value="/radar"/>
+        <param name="odometry_topic" value="/rio/odom"/>
+        <param name="world_pub_topic" value="/world_radar"/>
+    </node>
+
+    <node name="pcd2map_node" pkg="pcd2map" type="pcd2map" output="screen">
+        <param name="odom_topic" value="/odometry"/>
+
+        <param name="pointcloud_topic" value="/radar"/>
+        <param name="thre_max" value="1.0"/>
+        <param name="thre_min" value="-0.5"/>
+        <param name="flag_pass_through" value="0"/>
+        <param name="map_resolution" value="0.1"/>
+        <param name="thre_radius" value="0.2"/>
+        <param name="min_neighbors" value="3"/>
+
+        <param name="bound_up" value="10"/>
+        <param name="bound_down" value="-10"/>
+        <param name="bound_left" value="10"/>
+        <param name="bound_right" value="-10"/>
+    </node>
+
+    <!-- RViz configuration nodes -->
+    <node name="rviz_map" pkg="rviz" type="rviz" args="-d $(find OccupiedMap)/rviz_cfg/map.rviz" output="screen"/>
+    <!-- <node name="rviz_origin" pkg="rviz" type="rviz" args="-d $(find OccupiedMap)/rviz_cfg/origin.rviz" output="screen"/> -->
+</launch>
+

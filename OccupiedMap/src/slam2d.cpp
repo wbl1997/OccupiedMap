@@ -27,6 +27,8 @@ double outlier_stddev_thresh_0, outlier_stddev_thresh_1, outlier_stddev_thresh_2
 Eigen::Matrix3d rotation_0, rotation_1, rotation_2;
 Eigen::Vector3d translation_0, translation_1, translation_2;
 
+int radar_frame_count = 0; // 全局变量，用于记录发布的/radar帧数
+
 struct PoseData {
     double time;
     Eigen::Vector3d position;
@@ -82,11 +84,11 @@ void applyPassthroughFilter(pcl::PointCloud<pcl::PointXYZI>& cloud, int sensor_i
     pass_x.setInputCloud(boost::make_shared<pcl::PointCloud<pcl::PointXYZI>>(cloud));
     pass_x.setFilterFieldName("x");
     if (sensor_id == 0) {
-        pass_x.setFilterLimits(passthrough_front_min_0, passthrough_front_max_0);
+        pass_x.setFilterLimits(-passthrough_front_max_0, -passthrough_front_min_0);
     } else if (sensor_id == 1) {
-        pass_x.setFilterLimits(passthrough_front_min_1, passthrough_front_max_1);
+        pass_x.setFilterLimits(-passthrough_front_max_1, -passthrough_front_min_1);
     } else if (sensor_id == 2) {
-        pass_x.setFilterLimits(passthrough_front_min_2, passthrough_front_max_2);
+        pass_x.setFilterLimits(-passthrough_front_max_2, -passthrough_front_min_2);
     }
     pass_x.filter(cloud);
 
@@ -149,144 +151,178 @@ void logPose(const std::string& label, const PoseData& pose) {
     }
 }
 
+std::deque<sensor_msgs::PointCloud2ConstPtr> pending_cloud_queue;
+
 void radarCallback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg,
                    ros::Publisher& transformed_cloud_pub, ros::Publisher& world_cloud_pub,
                    tf2_ros::TransformBroadcaster& broadcaster, nav_msgs::Path& path,
-                   ros::Publisher& path_pub,
+                   ros::Publisher& path_pub, ros::Publisher& odometry_pub,
                    std::deque<PointCloudData>& cloud_queue, int window_size, bool enable_passthrough, bool enable_outlier_removal,
                    int sensor_id, std::deque<PointCloudData>& combined_queue) {
-    if (pose_data_queue.empty()) {
-        if (enable_logging) {
+    const int queue_max_size = 200;  // 队列大小设置为200
+    pending_cloud_queue.push_back(cloud_msg);
+
+    while (!pending_cloud_queue.empty()) {
+        const auto& current_cloud_msg = pending_cloud_queue.front();
+        double lidarTimestamp = current_cloud_msg->header.stamp.toSec();
+        // ROS_INFO_STREAM("Processing point cloud with timestamp: " << std::fixed << std::setprecision(5) << lidarTimestamp);
+
+        if (pose_data_queue.empty()) {
             ROS_WARN("No pose data available. Skipping this callback.");
+            break;
         }
-        return;
-    }
 
-    pcl::PointCloud<pcl::PointXYZI> pcl_cloud;
-    pcl::fromROSMsg(*cloud_msg, pcl_cloud);
+        // 输出pose_data_queue的开始和结束时间戳
+        double startPoseTimestamp = pose_data_queue.front().time;
+        double endPoseTimestamp = pose_data_queue.back().time;
+        ROS_INFO_STREAM("NOW timestamp: " << std::fixed << std::setprecision(5) << lidarTimestamp);
+        ROS_INFO_STREAM("Pose queue start timestamp: " << std::fixed << std::setprecision(5) << startPoseTimestamp);
+        ROS_INFO_STREAM("Pose queue end timestamp: " << std::fixed << std::setprecision(5) << endPoseTimestamp);
 
-    if (enable_passthrough) {
-        applyPassthroughFilter(pcl_cloud, sensor_id);
-    }
-
-    Eigen::Matrix4f rotation_matrix = getTransformationMatrix(sensor_id).cast<float>();
-    pcl::PointCloud<pcl::PointXYZI> rotated_pcl_cloud;
-    pcl::transformPointCloud(pcl_cloud, rotated_pcl_cloud, rotation_matrix);
-
-    double lidarTimestamp = cloud_msg->header.stamp.toSec();
-    auto it = std::lower_bound(pose_data_queue.begin(), pose_data_queue.end(), lidarTimestamp,
-                               [](const PoseData& pose, double timestamp) {
-                                   return pose.time < timestamp;
-                               });
-
-    if (it == pose_data_queue.end() || it == pose_data_queue.begin()) {
-        if (enable_logging) {
-            ROS_WARN("Timestamp out of range for interpolation. Skipping this callback.");
+        if (lidarTimestamp <= startPoseTimestamp) {
+            ROS_WARN("Point cloud timestamp is earlier than pose queue start time. Removing this cloud.");
+            pending_cloud_queue.pop_front();
+            continue;
         }
-        return;
-    }
 
-    const PoseData& pose2 = *it;
-    const PoseData& pose1 = *(it - 1);
-    PoseData interpolated_pose = interpolatePose(lidarTimestamp, pose1, pose2);
+        pcl::PointCloud<pcl::PointXYZI> pcl_cloud;
+        pcl::fromROSMsg(*current_cloud_msg, pcl_cloud);
 
-    logPose("Interpolated Pose", interpolated_pose);
-    logPose("Pose 1", pose1);
-    logPose("Pose 2", pose2);
+        Eigen::Matrix4f rotation_matrix = getTransformationMatrix(sensor_id).cast<float>();
+        pcl::PointCloud<pcl::PointXYZI> rotated_pcl_cloud;
+        pcl::transformPointCloud(pcl_cloud, rotated_pcl_cloud, rotation_matrix);
+        if (enable_passthrough) {
+            applyPassthroughFilter(rotated_pcl_cloud, sensor_id);
+            }   
+        
 
-    PointCloudData cloud_data;
-    cloud_data.cloud = rotated_pcl_cloud;
-    cloud_data.position = interpolated_pose.position;
-    cloud_data.orientation = interpolated_pose.orientation;
-    cloud_queue.push_back(cloud_data);
-    combined_queue.push_back(cloud_data);
+        auto it = std::lower_bound(pose_data_queue.begin(), pose_data_queue.end(), lidarTimestamp,
+                                   [](const PoseData& pose, double timestamp) {
+                                       return pose.time < timestamp;
+                                   });
 
-    if (window_size % 2 == 0) {
-        window_size += 1;
-    }
+        if (it == pose_data_queue.end() || it == pose_data_queue.begin()) {
+            // 无法进行插值，跳过当前点云数据
+            ROS_WARN("Cannot interpolate pose for timestamp. Skipping this cloud.");
+            break;
+        }
 
-    int half_window_size = (window_size - 1) / 2;
+        const PoseData& pose2 = *it;
+        const PoseData& pose1 = *(it - 1);
+        PoseData interpolated_pose = interpolatePose(lidarTimestamp, pose1, pose2);
 
-    if (cloud_queue.size() > window_size) {
-        cloud_queue.pop_front();
-    }
+        logPose("Interpolated Pose", interpolated_pose);
 
-    if (combined_queue.size() > window_size) {
-        combined_queue.pop_front();
-    }
+        PointCloudData cloud_data;
+        cloud_data.cloud = rotated_pcl_cloud;
+        cloud_data.position = interpolated_pose.position;
+        cloud_data.orientation = interpolated_pose.orientation;
+        cloud_queue.push_back(cloud_data);
+        combined_queue.push_back(cloud_data);
 
-    if (cloud_queue.size() < window_size || combined_queue.size() < window_size) {
-        if (enable_logging) {
+        if (window_size % 2 == 0) {
+            window_size += 1;
+        }
+
+        int half_window_size = (window_size - 1) / 2;
+
+        if (cloud_queue.size() > window_size) {
+            cloud_queue.pop_front();
+        }
+
+        if (combined_queue.size() > window_size) {
+            combined_queue.pop_front();
+        }
+
+        if (cloud_queue.size() < window_size || combined_queue.size() < window_size) {
             ROS_WARN("Cloud queue size is less than the window size. Skipping this callback.");
+            break;
         }
-        return;
+
+        pcl::PointCloud<pcl::PointXYZI> merged_cloud;
+        Eigen::Vector3d current_position = combined_queue[half_window_size].position;
+        Eigen::Quaterniond current_orientation = combined_queue[half_window_size].orientation;
+        Eigen::Matrix4f current_transform = (Eigen::Matrix4f) Eigen::Affine3d(current_orientation).matrix().cast<float>();
+        current_transform.block<3,1>(0,3) = current_position.cast<float>();
+
+        for (const auto& cloud_data : combined_queue) {
+            Eigen::Affine3d relative_transform = Eigen::Affine3d(current_orientation.inverse() * cloud_data.orientation);
+            relative_transform.translation() = current_orientation.inverse() * (cloud_data.position - current_position);
+            pcl::PointCloud<pcl::PointXYZI> transformed_cloud;
+            transformPointCloud(cloud_data.cloud, transformed_cloud, relative_transform.matrix().cast<float>());
+            merged_cloud += transformed_cloud;
+        }
+
+        if (enable_outlier_removal) {
+            applyOutlierRemovalFilter(merged_cloud, sensor_id);
+        }
+
+        sensor_msgs::PointCloud2 output_cloud;
+        pcl::toROSMsg(merged_cloud, output_cloud);
+        output_cloud.header.frame_id = "frame1";
+        output_cloud.header.stamp = ros::Time::now();
+        transformed_cloud_pub.publish(output_cloud);
+
+        // 计数和日志记录
+        radar_frame_count++;
+        ROS_INFO("Published radar frame count: %d", radar_frame_count);
+
+        
+        Eigen::Affine3d world_transform = Eigen::Affine3d::Identity();
+        world_transform.translate(current_position);
+        world_transform.rotate(current_orientation);
+
+        pcl::PointCloud<pcl::PointXYZI> world_cloud;
+        pcl::transformPointCloud(merged_cloud, world_cloud, world_transform.cast<float>());
+
+        sensor_msgs::PointCloud2 world_output_cloud;
+        pcl::toROSMsg(world_cloud, world_output_cloud);
+        world_output_cloud.header.frame_id = "world";
+        world_output_cloud.header.stamp = ros::Time::now();
+        world_cloud_pub.publish(world_output_cloud);
+
+        geometry_msgs::PoseStamped pose_stamped;
+        pose_stamped.header.stamp = ros::Time::now();
+        pose_stamped.header.frame_id = "world";
+        pose_stamped.pose.position.x = current_position.x();
+        pose_stamped.pose.position.y = current_position.y();
+        pose_stamped.pose.position.z = current_position.z();
+        pose_stamped.pose.orientation.x = current_orientation.x();
+        pose_stamped.pose.orientation.y = current_orientation.y();
+        pose_stamped.pose.orientation.z = current_orientation.z();
+        pose_stamped.pose.orientation.w = current_orientation.w();
+
+        path.poses.push_back(pose_stamped);
+        path_pub.publish(path);
+
+        // Publish odometry message
+        nav_msgs::Odometry odometry_msg;
+        odometry_msg.header.stamp = ros::Time::now();
+        odometry_msg.header.frame_id = "world";
+        odometry_msg.pose.pose = pose_stamped.pose;
+        odometry_msg.twist.twist.linear.x = 0;  // You may want to set the correct linear velocity
+        odometry_msg.twist.twist.linear.y = 0;
+        odometry_msg.twist.twist.linear.z = 0;
+        odometry_msg.twist.twist.angular.x = 0;  // You may want to set the correct angular velocity
+        odometry_msg.twist.twist.angular.y = 0;
+        odometry_msg.twist.twist.angular.z = 0;
+
+        odometry_pub.publish(odometry_msg);
+
+        // 输出队列的大小
+        ROS_INFO_STREAM("Pending cloud queue size: " << pending_cloud_queue.size());
+
+        pending_cloud_queue.pop_front();  // 删除已经成功处理的点云数据
+
+        // 确保队列大小不超过200
+        if (pending_cloud_queue.size() > queue_max_size) {
+            pending_cloud_queue.pop_front();
+            ROS_WARN("Pending cloud queue exceeded maximum size. Dropping oldest entry.");
+        }
     }
-
-    pcl::PointCloud<pcl::PointXYZI> merged_cloud;
-    Eigen::Vector3d current_position = combined_queue[half_window_size].position;
-    Eigen::Quaterniond current_orientation = combined_queue[half_window_size].orientation;
-    Eigen::Matrix4f current_transform = (Eigen::Matrix4f) Eigen::Affine3d(current_orientation).matrix().cast<float>();
-    current_transform.block<3,1>(0,3) = current_position.cast<float>();
-
-    for (const auto& cloud_data : combined_queue) {
-        Eigen::Affine3d relative_transform = Eigen::Affine3d(current_orientation.inverse() * cloud_data.orientation);
-        relative_transform.translation() = current_orientation.inverse() * (cloud_data.position - current_position);
-        pcl::PointCloud<pcl::PointXYZI> transformed_cloud;
-        transformPointCloud(cloud_data.cloud, transformed_cloud, relative_transform.matrix().cast<float>());
-        merged_cloud += transformed_cloud;
-    }
-
-    if (enable_outlier_removal) {
-        applyOutlierRemovalFilter(merged_cloud, sensor_id);
-    }
-
-    sensor_msgs::PointCloud2 output_cloud;
-    pcl::toROSMsg(merged_cloud, output_cloud);
-    output_cloud.header.frame_id = "frame1";
-    output_cloud.header.stamp = ros::Time::now();
-    transformed_cloud_pub.publish(output_cloud);
-
-    Eigen::Affine3d world_transform = Eigen::Affine3d::Identity();
-    world_transform.translate(current_position);
-    world_transform.rotate(current_orientation);
-
-    pcl::PointCloud<pcl::PointXYZI> world_cloud;
-    pcl::transformPointCloud(merged_cloud, world_cloud, world_transform.cast<float>());
-
-    sensor_msgs::PointCloud2 world_output_cloud;
-    pcl::toROSMsg(world_cloud, world_output_cloud);
-    world_output_cloud.header.frame_id = "world";
-    world_output_cloud.header.stamp = ros::Time::now();
-    world_cloud_pub.publish(world_output_cloud);
-
-    geometry_msgs::TransformStamped odom_to_frame1;
-    odom_to_frame1.header.stamp = ros::Time::now();
-    odom_to_frame1.header.frame_id = "odom";
-    odom_to_frame1.child_frame_id = "frame1";
-    odom_to_frame1.transform.translation.x = current_position.x();
-    odom_to_frame1.transform.translation.y = current_position.y();
-    odom_to_frame1.transform.translation.z = current_position.z();
-    odom_to_frame1.transform.rotation.x = current_orientation.x();
-    odom_to_frame1.transform.rotation.y = current_orientation.y();
-    odom_to_frame1.transform.rotation.z = current_orientation.z();
-    odom_to_frame1.transform.rotation.w = current_orientation.w();
-
-    broadcaster.sendTransform(odom_to_frame1);
-
-    geometry_msgs::PoseStamped pose_stamped;
-    pose_stamped.header.stamp = ros::Time::now();
-    pose_stamped.header.frame_id = "odom";
-    pose_stamped.pose.position.x = current_position.x();
-    pose_stamped.pose.position.y = current_position.y();
-    pose_stamped.pose.position.z = current_position.z();
-    pose_stamped.pose.orientation.x = current_orientation.x();
-    pose_stamped.pose.orientation.y = current_orientation.y();
-    pose_stamped.pose.orientation.z = current_orientation.z();
-    pose_stamped.pose.orientation.w = current_orientation.w();
-
-    path.poses.push_back(pose_stamped);
-    path_pub.publish(path);
 }
+
+
 
 std::vector<double> parseVector(const std::string& str) {
     std::stringstream ss(str);
@@ -363,10 +399,12 @@ int main(int argc, char** argv) {
     ros::Publisher transformed_cloud_pub = nh.advertise<sensor_msgs::PointCloud2>(radar_pub_topic, 1);
     ros::Publisher world_cloud_pub = nh.advertise<sensor_msgs::PointCloud2>(world_pub_topic, 1);
     ros::Publisher path_pub = nh.advertise<nav_msgs::Path>(path_pub_topic, 1);
+    ros::Publisher odometry_pub = nh.advertise<nav_msgs::Odometry>("/odometry", 1);  // Add odometry publisher
+
     tf2_ros::TransformBroadcaster broadcaster;
     std::deque<PointCloudData> cloud_queue_0, cloud_queue_1, cloud_queue_2, combined_queue;
     nav_msgs::Path path;
-    path.header.frame_id = "map";
+    path.header.frame_id = "world";
 
     ros::Subscriber radar_sub_0, radar_sub_1, radar_sub_2;
 
@@ -377,21 +415,21 @@ int main(int argc, char** argv) {
     if (enable_sensor_0) {
         radar_sub_0 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_0, 1, 
             std::bind(&radarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
-            std::ref(broadcaster), std::ref(path), std::ref(path_pub),
+            std::ref(broadcaster), std::ref(path), std::ref(path_pub), std::ref(odometry_pub), // Pass odometry publisher
             std::ref(cloud_queue_0), window_size, enable_passthrough, enable_outlier_removal, 0, std::ref(combined_queue)));
     }
 
     if (enable_sensor_1) {
         radar_sub_1 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_1, 1, 
             std::bind(&radarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
-            std::ref(broadcaster), std::ref(path), std::ref(path_pub),
+            std::ref(broadcaster), std::ref(path), std::ref(path_pub), std::ref(odometry_pub), // Pass odometry publisher
             std::ref(cloud_queue_1), window_size, enable_passthrough, enable_outlier_removal, 1, std::ref(combined_queue)));
     }
 
     if (enable_sensor_2) {
         radar_sub_2 = nh.subscribe<sensor_msgs::PointCloud2>(radar_sub_topic_2, 1, 
             std::bind(&radarCallback, std::placeholders::_1, std::ref(transformed_cloud_pub), std::ref(world_cloud_pub),
-            std::ref(broadcaster), std::ref(path), std::ref(path_pub),
+            std::ref(broadcaster), std::ref(path), std::ref(path_pub), std::ref(odometry_pub), // Pass odometry publisher
             std::ref(cloud_queue_2), window_size, enable_passthrough, enable_outlier_removal, 2, std::ref(combined_queue)));
     }
 
