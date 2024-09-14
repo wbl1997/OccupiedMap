@@ -1,7 +1,6 @@
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/Odometry.h>
-#include "std_msgs/String.h"
 #include <visualization_msgs/Marker.h>
 #include <iomanip>
 #include <geometry_msgs/PoseStamped.h>
@@ -16,47 +15,13 @@
 
 ros::Publisher pub_pointmap;
 ros::Publisher pub_marker;
-std::string odom_topic, pointcloud_topic, state_topic;
+std::string odom_topic, pointcloud_topic;
+Point2pgm p2m;
 
 queue<nav_msgs::Odometry::ConstPtr> odom_buffer;
 queue<sensor_msgs::PointCloud2ConstPtr> cloud_buffer;
-std::deque<std::string> state_buffer;
-Point2pgm p2m;
 
-const int WINDOW_SIZE = 2;              // 定义滑动窗口大小
-const std::string STATE_UP = "up";      // 定义状态字符串
-const std::string STATE_DOWN = "down";
-const std::string STATE_FLAT = "flat";
-int state_flag = 0;                     // 定义状态标志
-
-bool Is_detectline = true;
-
-// 计算状态变化
-void checkStateChanges()
-{
-    int count_updown = 0;
-    int count_flat = 0;
-
-    for (const auto& state : state_buffer) {
-        if (state == STATE_UP || state == STATE_DOWN) {
-            count_updown++;
-        } else if (state == STATE_FLAT) {
-            count_flat++;
-        }
-    }
-
-    // 检查条件并输出提示
-    if (count_updown >= 2 && state_flag == 0) {
-        ROS_INFO("Detected continuous 'up down' states.");
-        state_flag = 1;
-    } else if(count_flat >= 2 && state_flag == 1) {
-        ROS_INFO("Detected continuous 'flat'.");
-        p2m.initializeOccupancyGrid();
-        state_flag = 0;
-    }
-}
-
-void PcdToWorld(const pcl::PointCloud<pcl::PointXYZI>::Ptr pcd_cloud, const nav_msgs::Odometry odometry, pcl::PointCloud<pcl::PointXYZI>::Ptr& world_cloud)
+void PcdToWorld(const pcl::PointCloud<pcl::PointXYZ>::Ptr pcd_cloud, const nav_msgs::Odometry odometry, pcl::PointCloud<pcl::PointXYZ>::Ptr& world_cloud)
 {
     Eigen::Matrix3d Rs = Eigen::Quaterniond(
         odometry.pose.pose.orientation.w,
@@ -174,27 +139,9 @@ void pcd_callback(const sensor_msgs::PointCloud2ConstPtr& cloud_msg)
     // m_buf.unlock();
 }
 
-void state_callback(const std_msgs::String::ConstPtr& state_msg) 
-{
-    if (!state_msg){
-        ROS_WARN("Received null in state_callback. Ignoring...");
-        return;
-    }
-
-    state_buffer.push_back(state_msg->data);        // 添加新状态到滑动窗口
-
-    if (state_buffer.size() > WINDOW_SIZE)          // 如果滑动窗口超过指定大小，移除最旧的状态
-        state_buffer.pop_front();
-
-    checkStateChanges();    // 检查状态变化
-}
-
 void process()
 {
-    auto viewer = pcl::visualization::PCLVisualizer::Ptr(new pcl::visualization::PCLVisualizer("viewer"));
-    viewer->setBackgroundColor(0, 0, 0);
-
-    ros::Rate rate(30);
+    ros::Rate rate(20);
     while(true){
         std::pair<nav_msgs::Odometry, sensor_msgs::PointCloud2ConstPtr> measurement;
         measurement = getMeasurements();
@@ -206,62 +153,31 @@ void process()
         nav_msgs::Odometry odometry = measurement.first;
         sensor_msgs::PointCloud2ConstPtr cloud_msg = measurement.second;
 
-        pcl::PointCloud<pcl::PointXYZI>::Ptr pcd_cloud(new pcl::PointCloud<pcl::PointXYZI>);
-        pcl::PointCloud<pcl::PointXYZI>::Ptr world_cloud(new pcl::PointCloud<pcl::PointXYZI>);
-        pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_after_PassThrough(new pcl::PointCloud<pcl::PointXYZI>);
-        pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_after_Radius(new pcl::PointCloud<pcl::PointXYZI>);
+        pcl::PointCloud<pcl::PointXYZ>::Ptr pcd_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+        pcl::PointCloud<pcl::PointXYZ>::Ptr world_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_after_PassThrough(new pcl::PointCloud<pcl::PointXYZ>);
+        pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_after_Radius(new pcl::PointCloud<pcl::PointXYZ>);
 
         pcl::fromROSMsg(*cloud_msg, *pcd_cloud);
 
         marker_publish(odometry);
+
         PcdToWorld(pcd_cloud, odometry, world_cloud);
-
-        // 高度重置楼层
-        // float layer_height = odometry.pose.pose.position.z;
-        // if (std::abs(layer_height - layer_height0) > 0.15)
-        // {
-        //     p2m.initializeOccupancyGrid();
-        //     layer_height0 = layer_height;  
-        // }
-
-        // voxel filter 0.2m
-        pcl::VoxelGrid<pcl::PointXYZI> voxel;
-        voxel.setInputCloud(world_cloud);
-        voxel.setLeafSize(0.1, 0.1, 0.1);
-        voxel.filter(*world_cloud);
-
         p2m.PassThroughFilter(world_cloud, cloud_after_PassThrough, odometry);
         p2m.RadiusOutlierFilter(cloud_after_PassThrough, cloud_after_Radius);
-        if(Is_detectline){
-            // 直线检测+直线点优化（将直线点拉到对应直线上）+外点滤除
-            pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_line_opt(new pcl::PointCloud<pcl::PointXYZI>);
-            p2m.detectLines(cloud_after_Radius, cloud_line_opt, viewer);
-            p2m.OccupancyMap(cloud_line_opt, odometry);
-        }
-        else{
-            p2m.OccupancyMap(cloud_after_Radius, odometry);
-        }
+        p2m.OccupancyMap(cloud_after_Radius, odometry);
         pub_pointmap.publish(p2m.map_msg);
 
-        if(Is_detectline){
-            // use viewer to show world_cloud
-            viewer->addPointCloud<pcl::PointXYZI>(cloud_after_Radius, "world_cloud");
-            viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "world_cloud");
-        }
-        
-        viewer->spinOnce(100);
-        viewer->removeAllPointClouds();
-        viewer->removeAllShapes();
         rate.sleep();
     }
 }
 
 void pcd_callback0(const sensor_msgs::PointCloud2ConstPtr& cloud_msg) 
 {
-    pcl::PointCloud<pcl::PointXYZI>::Ptr pcd_cloud(new pcl::PointCloud<pcl::PointXYZI>);
-    pcl::PointCloud<pcl::PointXYZI>::Ptr world_cloud(new pcl::PointCloud<pcl::PointXYZI>);
-    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_after_PassThrough(new pcl::PointCloud<pcl::PointXYZI>);
-    pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_after_Radius(new pcl::PointCloud<pcl::PointXYZI>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr pcd_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr world_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_after_PassThrough(new pcl::PointCloud<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud_after_Radius(new pcl::PointCloud<pcl::PointXYZ>);
 
     if (cloud_buffer.empty())
     {
@@ -296,15 +212,12 @@ int main(int argc, char** argv) {
     // Get parameters from the parameter server
     nh.param("odom_topic", odom_topic, std::string("/vins_estimator/keyframe_pose"));
     nh.param("pointcloud_topic", pointcloud_topic, std::string("/vins_estimator/depth_cloud"));
-    nh.param("state_topic", state_topic, std::string("/state"));
-    nh.param("is_detectline", Is_detectline, true);
     p2m = Point2pgm(nh);
 
     pub_pointmap = nh.advertise<nav_msgs::OccupancyGrid>("/map",1000);
     pub_marker = nh.advertise<visualization_msgs::Marker>("/marker", 1000);
     ros::Subscriber odom_sub = nh.subscribe(odom_topic, 1000, odom_callback);
     ros::Subscriber pointcloud_sub = nh.subscribe(pointcloud_topic, 1000, pcd_callback);
-    ros::Subscriber state_sub = nh.subscribe(state_topic, 1000, state_callback);
 
     std::thread measurement_process(process);    
     ros::spin();

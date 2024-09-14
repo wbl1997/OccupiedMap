@@ -1,0 +1,95 @@
+cmake_minimum_required(VERSION 3.0.2)
+project(pcl_01)
+
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# 找到 catkin 和需要的组件
+find_package(catkin REQUIRED COMPONENTS
+  pcl_conversions
+  pcl_ros
+  roscpp
+  sensor_msgs
+)
+
+# 找到 PCL 包
+find_package(PCL 1.7 REQUIRED)  # 明确指定所需的 PCL 版本
+
+# 包括头文件路径
+include_directories(
+  include
+  ${catkin_INCLUDE_DIRS}
+  ${PCL_INCLUDE_DIRS}
+)
+
+# 添加 PCL 的定义和库目录
+add_definitions(${PCL_DEFINITIONS})
+link_directories(${PCL_LIBRARY_DIRS})  # 确保PCL库目录被添加
+
+# 声明一个 C++ 可执行文件
+# add_executable(pcl_create src/pcl_create.cpp)
+# add_executable(lidar_odom src/lidar_odom.cpp)
+# add_executable(pcl_write src/pcl_write.cpp)
+# add_executable(pcl_filter src/pcl_filter.cpp)
+# add_executable(pcl_filtertest src/pcl_filtertest.cpp)
+# add_executable(pcl_filterplus src/pcl_filterplus.cpp)
+# add_executable(laserscan src/laserscan.cpp)
+# add_executable(pcl_view src/pcl_view.cpp)
+# add_executable(pcl_2d src/pcl_2d.cpp)
+add_executable(pcl2 src/pcl2.cpp)
+# add_executable(radar src/radar.cpp)
+# add_executable(radar_win src/radar_win.cpp)
+# add_executable(radar_winV2 src/radar_winV2.cpp)
+# add_executable(lidar src/lidar.cpp)
+# add_executable(odom_pulisher src/odom_pulisher.cpp)
+add_executable(rgbd src/rgbd.cpp)
+add_executable(rgbdV2 src/rgbdV2.cpp)
+# add_executable(getpose src/getpose.cpp)
+# add_executable(2d src/2d.cpp)
+# add_executable(readpose src/readpose.cpp)
+# add_executable(slam2d src/slam2d.cpp)
+# 添加依赖
+
+# add_dependencies(pcl_create ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(lidar_odom ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(pcl_write ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(pcl_filter ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(pcl_filtertest ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(pcl_filterplus ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(laserscan ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(pcl_view ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(pcl_2d ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(pcl2 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(radar ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(radar_win ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(radar_winV2 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(lidar ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(odom_pulisher ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(rgbd ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(rgbdV2 ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(getpose ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(2d ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(readpose ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# add_dependencies(slam2d ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+# 链接库文件
+# target_link_libraries(pcl_create ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(lidar_odom ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(pcl_write ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(pcl_filter ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(pcl_filtertest ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(pcl_filterplus ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(laserscan ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(pcl_view ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(pcl_2d ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(pcl2 ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(radar ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(radar_win ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(radar_winV2 ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(lidar ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(odom_pulisher ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(rgbd ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(rgbdV2 ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(getpose ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(2d ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(readpose ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+# target_link_libraries(slam2d ${catkin_LIBRARIES} ${PCL_LIBRARIES})

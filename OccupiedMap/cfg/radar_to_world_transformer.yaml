@@ -1,7 +1,0 @@
-radar_to_world_transformer:
-  enable_passthrough: true
-  enable_outlier_removal: true
-  window_size: 20
-  radar_sub_topic: "/ti_mmwave/radar_scan_pcl_0"
-  radar_pub_topic: "/radar"
-  tum_file_path: "/home/levy/pcl_ws/src/pcl_01/data/0511/data1_gt.txt"

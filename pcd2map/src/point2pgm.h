@@ -28,7 +28,7 @@ public:
 
     void PassThroughFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr& pcd_cloud,pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud_after_PassThrough, const nav_msgs::Odometry& odom);
     void RadiusOutlierFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_after_PassThrough, pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud_after_Radius);
-    void detectLines(const pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud, pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud_line_opt);
+    void detectLines(const pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud, pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud_line_opt, pcl::visualization::PCLVisualizer::Ptr viewer);
     void OccupancyMap(const pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, const nav_msgs::Odometry& odom);
 
     nav_msgs::OccupancyGrid map_msg;

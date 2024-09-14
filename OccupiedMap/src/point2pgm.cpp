@@ -52,9 +52,8 @@ void Point2pgm::initializeOccupancyGrid() {
     map_msg.info.origin.orientation.w = 1.0;
     map_msg.info.width = int((bound_up - bound_down) / map_resolution);
     map_msg.info.height = int((bound_left - bound_right) / map_resolution);
-    //map_msg.data.resize(map_msg.info.width * map_msg.info.height, -1);
+    map_msg.data.resize(map_msg.info.width * map_msg.info.height, -1);
 
-    map_msg.data.assign(map_msg.info.width * map_msg.info.height, -1);
     occupancy_grid.create(map_msg.info.height, map_msg.info.width, CV_8S);
     occupancy_grid.setTo(cv::Scalar(-1));
 }
@@ -63,7 +62,7 @@ Point2pgm::~Point2pgm(){};
 
 
 
-void Point2pgm::PassThroughFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr& pcd_cloud,pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud_after_PassThrough, const nav_msgs::Odometry& odom)
+void Point2pgm::PassThroughFilter(const pcl::PointCloud<pcl::PointXYZ>::Ptr& pcd_cloud,pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud_after_PassThrough, const nav_msgs::Odometry& odom)
 {
     if(pcd_cloud->points.empty())
     {
@@ -74,7 +73,7 @@ void Point2pgm::PassThroughFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr& pc
     double thre_min_corrected = thre_min + odom.pose.pose.position.z;
     double thre_max_corrected = thre_max + odom.pose.pose.position.z;
 
-    pcl::PassThrough<pcl::PointXYZI> passthrough;        //直通滤波器对点云进行处理
+    pcl::PassThrough<pcl::PointXYZ> passthrough;        //直通滤波器对点云进行处理
 
     passthrough.setInputCloud(pcd_cloud);               //输入点云
     passthrough.setFilterFieldName("z");                //对z轴进行操作
@@ -84,7 +83,7 @@ void Point2pgm::PassThroughFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr& pc
     // std::cout << "直通滤波后点云数据点数：" << cloud_after_PassThrough->points.size() << std::endl;
 }
 
-void Point2pgm::RadiusOutlierFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr& cloud_after_PassThrough,pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud_after_Radius)
+void Point2pgm::RadiusOutlierFilter(const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud_after_PassThrough,pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud_after_Radius)
 {
     if(cloud_after_PassThrough->points.empty())
     {
@@ -92,7 +91,7 @@ void Point2pgm::RadiusOutlierFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr& 
       return;
     }
 
-    pcl::RadiusOutlierRemoval<pcl::PointXYZI> radiusoutlier;  //创建滤波器
+    pcl::RadiusOutlierRemoval<pcl::PointXYZ> radiusoutlier;  //创建滤波器
 
     radiusoutlier.setInputCloud(cloud_after_PassThrough);    //设置输入点云
     radiusoutlier.setRadiusSearch(thre_radius);                   //设置radius为100的范围内找临近点
@@ -101,187 +100,7 @@ void Point2pgm::RadiusOutlierFilter(const pcl::PointCloud<pcl::PointXYZI>::Ptr& 
     // std::cout << "半径滤波后点云数据点数：" << cloud_after_Radius->points.size() << std::endl;
 }
 
-void fitLine(const pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud, Eigen::Vector3f &point, Eigen::Vector3f &direction)
-{
-    Eigen::MatrixXf points(cloud->points.size(), 2);
-    for (size_t i = 0; i < cloud->points.size(); ++i)
-    {
-        points(i, 0) = cloud->points[i].x;
-        points(i, 1) = cloud->points[i].y;
-    }
-
-    Eigen::Vector2f centroid = points.colwise().mean();
-    Eigen::MatrixXf centered = points.rowwise() - centroid.transpose();
-    Eigen::Matrix2f covariance = centered.adjoint() * centered;
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix2f> solver(covariance);
-
-    point.head<2>() = centroid;
-    direction.head<2>() = solver.eigenvectors().col(1).normalized();
-    point.z() = 0;
-    direction.z() = 0;
-}
-
-void Point2pgm::detectLines(const pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud, 
-    pcl::PointCloud<pcl::PointXYZI>::Ptr &cloud_line_opt, pcl::visualization::PCLVisualizer::Ptr viewer)
-{
-    pcl::PointCloud<pcl::PointXYZI>::Ptr remainingCloud(new pcl::PointCloud<pcl::PointXYZI>(*cloud));
-    // 将z值置为0，投影到2D平面
-    for (auto &point : remainingCloud->points)
-    {
-        point.z = 0;
-    }
-    int lineCounter = 0;
-
-    while (remainingCloud->size() > 50 && lineCounter < 2) // 设定一个阈值，当剩余点数少于这个值时停止检测
-    {
-        pcl::PointCloud<pcl::PointXYZI>::Ptr line2D(new pcl::PointCloud<pcl::PointXYZI>);
-        pcl::PointCloud<pcl::PointXYZI>::Ptr cloud_f2D(new pcl::PointCloud<pcl::PointXYZI>);
-
-        // 创建一个模型参数对象，用于记录结果
-        pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
-        // inliers表示误差能容忍的点 记录点云的序号
-        pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
-
-        // 创建一个分割器
-        pcl::SACSegmentation<pcl::PointXYZI> seg;
-        // Optional
-        seg.setOptimizeCoefficients(true);
-        // Mandatory-设置目标几何形状
-        seg.setModelType(pcl::SACMODEL_LINE); //SACMODEL_LINE SACMODEL_PLANE注：在这里面修改模型名称
-        // 分割方法：随机采样法
-        seg.setMethodType(pcl::SAC_RANSAC); //SAC_RANSAC
-        // 最大的迭代的次数
-        seg.setMaxIterations(30);
-        // 设置误差容忍范围
-        seg.setDistanceThreshold(0.2); // 注：填写具体数值
-        // 输入点云
-        seg.setInputCloud(remainingCloud); // 输入点云
-        // 分割点云
-        seg.segment(*inliers, *coefficients);
-
-        if (inliers->indices.size() == 0)
-        {
-            std::cout << "Could not estimate a linear model for the given dataset." << std::endl;
-            break;
-        }
-
-        // 获取点和删除点2D
-        pcl::ExtractIndices<pcl::PointXYZI> extract;
-        extract.setInputCloud(remainingCloud); // 输入点云
-        extract.setIndices(inliers);
-        extract.setNegative(false);
-        extract.filter(*line2D); // line2D本次分割出的2D线
-
-        if (line2D->points.size() < 50)
-            break;
-
-        // 计算最优拟合直线参数
-        Eigen::Vector3f point, direction;
-        fitLine(line2D, point, direction);
-
-        float x1 = point.x();
-        float y1 = point.y();
-        float dx = direction.x();
-        float dy = direction.y();
-
-        std::vector<float> t_values;
-        double t_min = std::numeric_limits<double>::max();
-        double t_max = -std::numeric_limits<double>::max();
-
-        // 优化直线点，将它们拉到直线上
-        for (size_t i = 0; i < line2D->points.size(); ++i)
-        {
-            float x0 = line2D->points[i].x;
-            float y0 = line2D->points[i].y;
-
-            float t = ((x0 - x1) * dx + (y0 - y1) * dy) / (dx * dx + dy * dy);
-
-            line2D->points[i].x = x1 + t * dx;
-            line2D->points[i].y = y1 + t * dy;
-            line2D->points[i].z = 0;
-
-            t_values.push_back(t);
-            if (t < t_min) t_min = t;
-            if (t > t_max) t_max = t;
-        }
-
-        // *cloud_line_opt += *line2D;
-
-        // 对t值进行排序
-        std::sort(t_values.begin(), t_values.end());
-
-        // 递归检查t值的间隙并进行分段处理
-        std::vector<std::pair<float, float>> segments;
-        segments.push_back({t_min, t_max});
-        for (size_t i = 1; i < t_values.size(); ++i)
-        {
-            double gap = t_values[i] - t_values[i - 1];
-            if (gap > 1) // 这里的0.5是间隙阈值，可以根据需要调整
-            {
-                segments.back().second = t_values[i - 1];
-                segments.push_back({t_values[i], t_max});
-            }
-        }
-
-        std::cout<<"segments size: "<<segments.size()<<std::endl;
-
-        int seg_cnt = 0;
-        for (const auto& segment : segments)
-        {
-            float t_segment_min = segment.first;
-            float t_segment_max = segment.second;
-
-            pcl::PointXYZI min_point, max_point;
-            min_point.x = x1 + t_segment_min * dx;
-            min_point.y = y1 + t_segment_min * dy;
-            min_point.z = 0;
-            max_point.x = x1 + t_segment_max * dx;
-            max_point.y = y1 + t_segment_max * dy;
-            max_point.z = 0;
-
-            // 沿着检测到的直线均匀取点，每隔0.1m
-            pcl::PointCloud<pcl::PointXYZI>::Ptr interpolated_line(new pcl::PointCloud<pcl::PointXYZI>);
-            float distance = std::sqrt((max_point.x - min_point.x) * (max_point.x - min_point.x) +
-                                       (max_point.y - min_point.y) * (max_point.y - min_point.y));
-            int num_interpolated_points = distance / 0.1; // 插值点的数量
-
-            for (int i = 0; i <= num_interpolated_points; ++i)
-            {
-                float t = static_cast<float>(i) / num_interpolated_points;
-                pcl::PointXYZI interpolated_point;
-                interpolated_point.x = min_point.x + t * (max_point.x - min_point.x);
-                interpolated_point.y = min_point.y + t * (max_point.y - min_point.y);
-                interpolated_point.z = 0;
-                interpolated_point.intensity = int8_t(100);
-                interpolated_line->points.push_back(interpolated_point);
-            }
-
-            if (interpolated_line->points.size() < 10)
-                continue;
-
-            *cloud_line_opt += *interpolated_line;
-
-            // 添加直线到可视化
-            std::string cloud_name = "line" + std::to_string(lineCounter) + "_seg" + std::to_string(seg_cnt);
-            pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZI> single_color(interpolated_line, 0, 255, 0);
-            viewer->addPointCloud<pcl::PointXYZI>(interpolated_line, single_color, cloud_name);
-
-            viewer->addLine(min_point, max_point, 1.0, 0.0, 0.0, "line_" + std::to_string(lineCounter) + "_seg" + std::to_string(seg_cnt));
-        }
-
-        // *cloud_line_opt += *line2D;
-
-        // 删除直线点
-        extract.setNegative(true);
-        extract.filter(*cloud_f2D);
-        *remainingCloud = *cloud_f2D; // 更新剩余的点云
-        lineCounter++;
-    }
-    // *cloud_line_opt += *remainingCloud;
-}
-
-
-void Point2pgm::OccupancyMap(const pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, const  nav_msgs::Odometry& odom)
+void Point2pgm::OccupancyMap(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const  nav_msgs::Odometry& odom)
 {
   map_msg.header.stamp = ros::Time::now();
   map_msg.header.frame_id = "world";
@@ -405,32 +224,16 @@ void Point2pgm::OccupancyMap(const pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, c
 
   double x1 = odom.pose.pose.position.x;
   double y1 = odom.pose.pose.position.y;
-  std::vector<pair<double, int>> points_check;
   for(int iter = 0; iter < cloud->points.size(); iter++) {
     // 计算当前点云点到里程计位置的线段的离散化
     double x2 = cloud->points[iter].x;
     double y2 = cloud->points[iter].y;
-    int intensity = std::abs(int(cloud->points[iter].intensity));
-    if (intensity == 0) intensity = 100;
-    if (intensity > 255) intensity = 255;
-    if (intensity == 127 || intensity == 128) intensity = 129;
-    intensity -= 128;
-    //std::cout << "intensity: " << intensity << std::endl;
     double dx = x2 - x1;
     double dy = y2 - y1;
     double distance = std::sqrt(dx * dx + dy * dy);
-    int steps = static_cast<int>(std::ceil(distance / map_resolution));    // 将线段离散化为栅格
-    double angle = std::atan2(round(dy), round(dx));
-    points_check.push_back(make_pair(angle, steps));
-    for (const auto& pair : points_check) {
-      double stored_angle = pair.first;
-      int stored_steps = pair.second;
-      if (std::abs(angle - stored_angle) < angle_threshold) {
-          if (steps > stored_steps)
-              break;
-      }
-    }
-    
+
+    // 将线段离散化为栅格
+    int steps = static_cast<int>(std::ceil(distance / map_resolution));
     std::vector<int> indices_x(steps + 1);
     std::vector<int> indices_y(steps + 1);
     for (int step = 0; step <= steps; ++step) {
@@ -446,16 +249,134 @@ void Point2pgm::OccupancyMap(const pcl::PointCloud<pcl::PointXYZI>::Ptr cloud, c
       int x = indices_x[step];
       int y = indices_y[step];
       if (x >= 0 && x < map_msg.info.width && y >= 0 && y < map_msg.info.height) {
-        int value = (step < steps) ? 0 : intensity;
-        if (map_msg.data[y * map_msg.info.width + x] != -1 && map_msg.data[y * map_msg.info.width + x] != 0) 
-          break;
-        else{
-          map_msg.data[y * map_msg.info.width + x] = value;
-          occupancy_grid.at<int8_t>(y, x) = value;
-        }
-        //map_msg.data[y * map_msg.info.width + x] = value;
-        //occupancy_grid.at<int8_t>(y, x) = value;
+        int value = (step < steps) ? 0 : 100;
+        map_msg.data[y * map_msg.info.width + x] = value;
+        occupancy_grid.at<int8_t>(y, x) = value;
       }
     }
   }
 }
+
+// void Point2pgm::OccupancyMap(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const nav_msgs::Odometry& odom) {
+//     map_msg.header.stamp = ros::Time::now();
+//     map_msg.header.frame_id = "world";
+//     map_msg.info.map_load_time = ros::Time::now();
+//     if (cloud->points.empty()) {
+//         ROS_WARN("pcd is empty!\n");
+//         return;
+//     }
+//     double x_min, x_max, y_min, y_max;
+//     // 计算点云的边界
+//     calculateCloudBoundary(cloud, x_min, y_min, x_max, y_max);
+//     // 更新地图大小
+//     updateMapSize(x_min, y_min, x_max, y_max);
+//     // 根据点云和里程计更新占据地图
+//     updateOccupancyGrid(cloud, odom, x_min, y_min);
+// }
+
+// void Point2pgm::calculateCloudBoundary(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, double& x_min, double& y_min, double& x_max, double& y_max) {
+//     x_min = x_max = cloud->points[0].x;
+//     y_min = y_max = cloud->points[0].y;
+//     for (size_t i = 1; i < cloud->points.size(); ++i) {
+//         double x = cloud->points[i].x;
+//         double y = cloud->points[i].y;
+//         if (x < x_min) x_min = x;
+//         if (x > x_max) x_max = x;
+//         if (y < y_min) y_min = y;
+//         if (y > y_max) y_max = y;
+//     }
+// }
+
+// void Point2pgm::updateMapSize(double x_min, double y_min, double x_max, double y_max) {
+//     // 计算地图的原始中心位置
+//     double original_center_x = (bound_up + bound_down) / 2.0;
+//     double original_center_y = (bound_left + bound_right) / 2.0;
+//     // 扩展地图宽度和高度时计算需要增加的行列数
+//     int rows_to_add = 0, cols_to_add = 0;
+//     if (x_max > bound_up) {
+//         bound_up += Offset_x;
+//         int new_width = int((bound_up - bound_down) / map_resolution);
+//         rows_to_add = new_width - map_msg.info.width;
+//         map_msg.info.width = new_width;
+//     }
+//     if (y_max > bound_left) {
+//         bound_left += Offset_y;
+//         int new_height = int((bound_left - bound_right) / map_resolution);
+//         cols_to_add = new_height - map_msg.info.height;
+//         map_msg.info.height = new_height;
+//     }
+//     if (x_min < bound_down) {
+//         bound_down -= Offset_x;
+//         int new_width = int((bound_up - bound_down) / map_resolution);
+//         rows_to_add = new_width - map_msg.info.width;
+//         map_msg.info.width = new_width;
+//     }
+//     if (y_min < bound_right) {
+//         bound_right -= Offset_y;
+//         int new_height = int((bound_left - bound_right) / map_resolution);
+//         cols_to_add = new_height - map_msg.info.height;
+//         map_msg.info.height = new_height;
+//     }
+//     // 根据需要增加的行列数来更新地图数据和 occupancy_grid
+//     if (rows_to_add != 0 || cols_to_add != 0) {
+//         // 创建一个新的地图数据和 occupancy_grid
+//         std::vector<int8_t> new_data(map_msg.info.width * map_msg.info.height, -1);
+//         cv::Mat new_occupancy_grid(map_msg.info.height, map_msg.info.width, CV_8S, cv::Scalar(-1));
+//         // 复制现有的数据到新的地图数据和 occupancy_grid 中
+//         for (int y = 0; y < occupancy_grid.rows; ++y) {
+//             for (int x = 0; x < occupancy_grid.cols; ++x) {
+//                 int new_x = x, new_y = y;
+//                 if (rows_to_add > 0 && x < map_msg.info.width - rows_to_add) {
+//                     new_x += rows_to_add; // 向右移动
+//                 }
+//                 if (cols_to_add > 0 && y < map_msg.info.height - cols_to_add) {
+//                     new_y += cols_to_add; // 向下移动
+//                 }
+//                 if (new_x >= 0 && new_x < map_msg.info.width && new_y >= 0 && new_y < map_msg.info.height) {
+//                     new_data[new_x + new_y * map_msg.info.width] = map_msg.data[x + y * map_msg.info.width];
+//                     new_occupancy_grid.at<int8_t>(new_y, new_x) = occupancy_grid.at<int8_t>(y, x);
+//                 }
+//             }
+//         }
+//         // 更新地图消息和 occupancy_grid
+//         map_msg.data = std::move(new_data);
+//         occupancy_grid = new_occupancy_grid.clone();
+//         // 保持原始中心位置不变，调整原点位置
+//         map_msg.info.origin.position.x = original_center_x - map_msg.info.width * map_resolution / 2.0;
+//         map_msg.info.origin.position.y = original_center_y - map_msg.info.height * map_resolution / 2.0;
+//     }
+// }
+
+// void Point2pgm::updateOccupancyGrid(const pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, const nav_msgs::Odometry& odom, double x_min, double y_min) {
+//     double x1 = odom.pose.pose.position.x;
+//     double y1 = odom.pose.pose.position.y;
+//     for (int iter = 0; iter < cloud->points.size(); iter++) {
+//         // 计算当前点云点到里程计位置的线段的离散化
+//         double x2 = cloud->points[iter].x;
+//         double y2 = cloud->points[iter].y;
+//         double dx = x2 - x1;
+//         double dy = y2 - y1;
+//         double distance = std::sqrt(dx * dx + dy * dy);
+//         // 将线段离散化为栅格
+//         int steps = static_cast<int>(std::ceil(distance / map_resolution));
+//         std::vector<int> indices_x(steps + 1);
+//         std::vector<int> indices_y(steps + 1);
+//         for (int step = 0; step <= steps; ++step) {
+//             double ratio = static_cast<double>(step) / steps;
+//             double x = x1 + ratio * dx;
+//             double y = y1 + ratio * dy;
+//             indices_x[step] = static_cast<int>((x - bound_down) / map_resolution);
+//             indices_y[step] = static_cast<int>((y - bound_right) / map_resolution);
+//         }
+//         // 将线段上的栅格值设置为0，点云所在位置的栅格值设置为100
+//         for (int step = 0; step <= steps; ++step) {
+//             int x = indices_x[step];
+//             int y = indices_y[step];
+//             if (x >= 0 && x < map_msg.info.width && y >= 0 && y < map_msg.info.height) {
+//                 int value = (step < steps) ? 0 : 100;
+//                 map_msg.data[y * map_msg.info.width + x] = value;
+//                 occupancy_grid.at<int8_t>(y, x) = value;
+//             }
+//         }
+//     }
+// }

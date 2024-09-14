@@ -32,9 +32,13 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CATKIN_DEVEL_PREFIX}/lib/${PROJECT_NAME})
 
 # 定义可执行文件
 add_executable(slam2d src/slam2d.cpp)
+add_executable(readpose src/readpose.cpp)
+
 
 # 添加依赖
 add_dependencies(slam2d ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(readpose ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 # 链接库
 target_link_libraries(slam2d ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+target_link_libraries(readpose ${catkin_LIBRARIES} ${PCL_LIBRARIES})
